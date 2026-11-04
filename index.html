@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reel-Cutter</title>
+<style>
+  :root {
+    --bg: #f7f6f3; --card: #ffffff; --text: #1d1d1f; --muted: #6b6b70;
+    --line: #e3e1dc; --accent: #c2185b; --accent-text: #ffffff;
+    --keep: #1b7f3b; --keep-bg: #e6f4ea; --cut: #b3261e; --cut-bg: #fbe9e7;
+    --warn: #8a5a00; --warn-bg: #fff4d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141416; --card: #1e1e21; --text: #ececef; --muted: #9a9aa2;
+      --line: #313136; --accent: #f06292; --accent-text: #141416;
+      --keep: #7bd38f; --keep-bg: #1d3324; --cut: #ff8a80; --cut-bg: #3a1f1d;
+      --warn: #ffd166; --warn-bg: #3a3018;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  h2 { font-size: 1.1rem; margin: 0 0 12px; }
+  p.lead { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px; margin-bottom: 16px; }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  textarea, input, select { width: 100%; font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  textarea { min-height: 220px; resize: vertical; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  @media (max-width: 600px) { .row { grid-template-columns: 1fr; } }
+  .hint { color: var(--muted); font-size: .85rem; margin-top: 4px; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
+    padding: 10px 16px; border-radius: 8px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: wait; }
+  .status { margin-top: 12px; color: var(--muted); }
+  .error { color: var(--cut); background: var(--cut-bg); padding: 10px; border-radius: 8px; }
+  .warn { color: var(--warn); background: var(--warn-bg); padding: 8px 10px; border-radius: 8px; margin: 6px 0; font-size: .9rem; }
+  ol, ul { padding-left: 22px; margin: 0; }
+  li { margin: 6px 0; }
+  .tag { display: inline-block; font-size: .75rem; font-weight: 700; padding: 1px 8px; border-radius: 99px; margin-right: 6px; }
+  .tag.keep { color: var(--keep); background: var(--keep-bg); }
+  .tag.cut { color: var(--cut); background: var(--cut-bg); }
+  .reason { color: var(--muted); font-size: .9rem; }
+  .cutline { text-decoration: line-through; color: var(--muted); }
+  .num { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 4px; }
+  .hook { font-size: 1.15rem; font-weight: 600; border-left: 4px solid var(--accent); padding-left: 12px; margin: 0 0 8px; }
+  pre.subs { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px; font: 1rem/1.6 ui-monospace, Menlo, Consolas, monospace; margin: 0; max-height: 420px; overflow: auto; }
+  .big { font-size: 1.4rem; font-weight: 700; }
+  .hidden { display: none; }
+  details summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Reel-Cutter</h1>
+  <p class="lead">Rohvideo-Transkript rein, Schnittplan für ein Reel mit 30–60 Sekunden raus. Dabei werden nur Sätze verwendet, die du wirklich gesagt hast.</p>
+
+  <section class="card">
+    <div class="row">
+      <div>
+        <label for="apiKey">Anthropic API-Key</label>
+        <input id="apiKey" type="password" placeholder="sk-ant-…" autocomplete="off">
+        <div class="hint">Bleibt nur in deinem Browser. <label style="display:inline;font-weight:400"><input id="remember" type="checkbox" style="width:auto"> merken</label></div>
+      </div>
+      <div>
+        <label for="model">Modell</label>
+        <select id="model">
+          <option value="claude-opus-5-5">Claude Opus 5.5 (beste Qualität)</option>
+          <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (günstiger)</option>
+          <option value="claude-haiku-5-5">Claude Haiku 5.5 (am günstigsten)</option>
+        </select>
+      </div>
+    </div>
+    <label for="transcript">Dein Transkript</label>
+    <textarea id="transcript" placeholder="Füg hier dein Transkript ein, genau so, wie du es gesprochen hast …"></textarea>
+    <div class="hint">Tipp: Hat dein Transkript keine Satzzeichen, setz pro Satz eine neue Zeile. Jede Zeile bzw. jeder Satz bekommt eine Nummer.</div>
+    <div class="buttons">
+      <button id="run" class="primary">Schnittplan erstellen</button>
+      <button id="copyPrompt" title="Ohne API-Key: Prompt kopieren und in die Claude-App einfügen">Prompt kopieren (ohne API-Key)</button>
+    </div>
+    <div id="status" class="status"></div>
+  </section>
+
+  <div id="result" class="hidden">
+    <section class="card"><h2>1. Hook</h2><div id="outHook"></div></section>
+    <section class="card"><h2>2. Schnittliste</h2><div id="outList"></div></section>
+    <section class="card"><h2>3. Reihenfolge</h2><div id="outOrder"></div></section>
+    <section class="card"><h2>4. Text oben im Bild</h2><div id="outOverlay"></div></section>
+    <section class="card"><h2>5. Untertitel</h2><pre id="outSubs" class="subs"></pre>
+      <div class="buttons"><button id="copySubs">Untertitel kopieren</button><button id="downloadSrt">Als .srt laden</button></div></section>
+    <section class="card"><h2>6. Ende</h2><div id="outEnd"></div></section>
+    <div class="buttons"><button id="downloadPlan">Ganzen Schnittplan als .txt laden</button></div>
+  </div>
+</main>
+
+<script type="module">
+import Anthropic from "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.1.0/+esm";
+
+const WORDS_PER_SECOND = 2.6;   // typisches Sprechtempo auf Deutsch
+const MAX_SUB_WORDS = 4;
+const MAX_OVERLAY_WORDS = 6;
+
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  del(k) { try { localStorage.removeItem(k); } catch {} },
+};
+
+// ---------- Transkript in nummerierte Sätze zerlegen ----------
+function splitSentences(text) {
+  return text
+    .split(/\n+/)
+    .flatMap((line) => line.split(/(?<=[.!?…])\s+/))
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .map((text, i) => ({ id: i + 1, text }));
+}
+
+const normWord = (w) => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+const words = (s) => s.split(/\s+/).map(normWord).filter(Boolean);
+const countWords = (s) => s.split(/\s+/).filter((w) => normWord(w)).length;
+
+// ---------- Prompt ----------
+const SYSTEM = `Du bist ein erfahrener Cutter für Instagram-Reels. Du bekommst das Transkript eines Rohvideos als nummerierte Sätze, genau so, wie es gesprochen wurde – mit Versprechern, doppelten Anläufen und Füllwörtern.
+
+Erstelle einen Schnittplan für ein Reel mit 30 bis 60 Sekunden:
+1. HOOK: Wähle den Satz, der der stärkste Einstieg ist. Er muss in den ersten 2 Sekunden neugierig machen.
+2. SCHNITTLISTE: Markiere JEDEN Satz mit BEHALTEN oder RAUS. Raus kommen Versprecher, doppelte Anläufe (behalte immer den besseren), Wiederholungen, reine Füllsätze und alles, was nicht auf die Hook-Aussage einzahlt. Bei RAUS: Grund in 3 bis 5 Wörtern.
+3. REIHENFOLGE: Die IDs der behaltenen Sätze in Schnittreihenfolge. Der Hook steht an erster Stelle.
+4. TEXT OBEN IM BILD: 3 Varianten mit maximal 6 Wörtern. Erst das Ergebnis, dann der Kontext.
+5. UNTERTITEL: Für jeden behaltenen Satz eine sauber geschriebene Fassung. Du darfst NUR Füllwörter (äh, ähm, also, halt, quasi …) und Wortwiederholungen streichen sowie Groß-/Kleinschreibung und Satzzeichen korrigieren. Füge keine neuen Wörter hinzu und formuliere nichts um.
+6. ENDE: Welcher behaltene Satz ist der beste Abschluss? Er steht an letzter Stelle der Reihenfolge.
+
+Ganz wichtig: Bleib bei den Worten des Sprechers. Erfinde keine Sätze, die nicht gesagt wurden. Die Overlay-Texte dürfen kürzen, sollen aber die Wortwahl des Sprechers aufgreifen.`;
+
+const SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["hook", "saetze", "reihenfolge", "overlays", "untertitel", "abschluss"],
+  properties: {
+    hook: {
+      type: "object", additionalProperties: false, required: ["id", "warum"],
+      properties: { id: { type: "integer" }, warum: { type: "string" } },
+    },
+    saetze: {
+      type: "array",
+      items: {
+        type: "object", additionalProperties: false, required: ["id", "entscheidung", "grund"],
+        properties: {
+          id: { type: "integer" },
+          entscheidung: { type: "string", enum: ["BEHALTEN", "RAUS"] },
+          grund: { type: "string", description: "Bei RAUS 3 bis 5 Wörter, bei BEHALTEN leer lassen." },
+        },
+      },
+    },
+    reihenfolge: { type: "array", items: { type: "integer" } },
+    overlays: { type: "array", items: { type: "string" } },
+    untertitel: {
+      type: "array",
+      items: {
+        type: "object", additionalProperties: false, required: ["id", "text"],
+        properties: { id: { type: "integer" }, text: { type: "string" } },
+      },
+    },
+    abschluss: {
+      type: "object", additionalProperties: false, required: ["id", "warum"],
+      properties: { id: { type: "integer" }, warum: { type: "string" } },
+    },
+  },
+};
+
+const numbered = (sentences) => sentences.map((s) => `[${s.id}] ${s.text}`).join("\n");
+
+function chatPrompt(raw) {
+  return `${SYSTEM}
+
+Antworte in diesen 6 Abschnitten: 1. HOOK (sag mir, ob ich ihn nach vorne ziehen soll), 2. SCHNITTLISTE (jeder Satz BEHALTEN oder RAUS, bei RAUS 3–5 Wörter warum), 3. REIHENFOLGE, 4. TEXT OBEN IM BILD (3 Varianten), 5. UNTERTITEL (kurze Zeilen mit höchstens 4 Wörtern), 6. ENDE (ungefähre Länge und bester Abschluss).
+
+Mein Transkript:
+${raw}`;
+}
+
+// ---------- Claude aufrufen ----------
+async function askClaude({ apiKey, model, sentences }) {
+  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+  const params = {
+    model,
+    max_tokens: 16000,
+    system: SYSTEM,
+    messages: [{ role: "user", content: `Mein Transkript (nummerierte Sätze):\n${numbered(sentences)}` }],
+    output_config: { format: { type: "json_schema", schema: SCHEMA } },
+  };
+  if (model === "claude-opus-5-5") params.output_config.effort = "medium";
+
+  let response;
+  if (model === "claude-opus-5-5" || model === "claude-sonnet-5-5") {
+    // Bei einer Sicherheits-Ablehnung springt automatisch ein anderes Modell ein.
+    response = await client.beta.messages.create({
+      ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
+    });
+  } else {
+    response = await client.messages.create(params);
+  }
+
+  if (response.stop_reason === "refusal") throw new Error("Claude hat die Anfrage abgelehnt.");
+  if (response.stop_reason === "max_tokens") throw new Error("Antwort wurde abgeschnitten – Transkript ist evtl. zu lang.");
+  const text = response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  return JSON.parse(text);
+}
+
+// ---------- Plan prüfen und aufbereiten (alles lokal) ----------
+function buildPlan(sentences, ai) {
+  const byId = new Map(sentences.map((s) => [s.id, s]));
+  const warnings = [];
+
+  const decisions = new Map();
+  for (const d of ai.saetze) if (byId.has(d.id)) decisions.set(d.id, d);
+  for (const s of sentences) {
+    if (!decisions.has(s.id)) {
+      decisions.set(s.id, { id: s.id, entscheidung: "RAUS", grund: "nicht bewertet" });
+      warnings.push(`Satz ${s.id} wurde nicht bewertet und ist vorsichtshalber RAUS.`);
+    }
+  }
+  const kept = new Set([...decisions.values()].filter((d) => d.entscheidung === "BEHALTEN").map((d) => d.id));
+
+  // Reihenfolge: nur echte, behaltene IDs, jede nur einmal
+  const seen = new Set();
+  let order = ai.reihenfolge.filter((id) => kept.has(id) && !seen.has(id) && seen.add(id));
+  for (const id of kept) if (!seen.has(id)) order.push(id);
+
+  let hookId = byId.has(ai.hook.id) ? ai.hook.id : order[0];
+  if (hookId !== undefined && !kept.has(hookId)) { kept.add(hookId); decisions.get(hookId).entscheidung = "BEHALTEN"; decisions.get(hookId).grund = ""; }
+  if (hookId !== undefined) order = [hookId, ...order.filter((id) => id !== hookId)];
+
+  let endId = kept.has(ai.abschluss.id) && ai.abschluss.id !== hookId ? ai.abschluss.id : order[order.length - 1];
+  if (endId !== undefined && endId !== hookId) order = [...order.filter((id) => id !== endId), endId];
+
+  const firstKeptInOriginal = sentences.find((s) => kept.has(s.id))?.id;
+  const moveHook = hookId !== undefined && hookId !== firstKeptInOriginal;
+
+  // Saubere Fassung: darf nur Wörter enthalten, die im Originalsatz vorkommen
+  const clean = new Map();
+  for (const u of ai.untertitel) {
+    const s = byId.get(u.id);
+    if (!s || !kept.has(u.id)) continue;
+    const orig = new Set(words(s.text));
+    const invented = words(u.text).filter((w) => !orig.has(w));
+    if (invented.length) {
+      warnings.push(`Satz ${u.id}: Claude wollte Wörter einfügen (${invented.join(", ")}). Es wird dein Originalsatz verwendet.`);
+    } else {
+      clean.set(u.id, u.text.trim());
+    }
+  }
+  const finalText = (id) => clean.get(id) ?? byId.get(id).text;
+
+  // Untertitel-Zeilen mit max. 4 Wörtern
+  const subtitleBlocks = order.map((id) => {
+    const ws = finalText(id).split(/\s+/).filter(Boolean);
+    const lines = [];
+    for (let i = 0; i < ws.length; i += MAX_SUB_WORDS) lines.push(ws.slice(i, i + MAX_SUB_WORDS).join(" "));
+    return { id, lines };
+  });
+
+  const totalWords = order.reduce((n, id) => n + countWords(finalText(id)), 0);
+  const seconds = Math.round(totalWords / WORDS_PER_SECOND);
+  if (seconds < 30) warnings.push(`Mit ca. ${seconds} s ist das Reel kürzer als 30 Sekunden.`);
+  if (seconds > 60) warnings.push(`Mit ca. ${seconds} s ist das Reel länger als 60 Sekunden – überleg, ob noch ein Satz raus kann.`);
+
+  const overlays = ai.overlays.slice(0, 3).map((t) => ({ text: t.trim(), tooLong: countWords(t) > MAX_OVERLAY_WORDS }));
+
+  return {
+    sentences, decisions, order, hookId, endId, moveHook, finalText, subtitleBlocks,
+    totalWords, seconds, overlays, warnings,
+    hookWhy: ai.hook.warum, endWhy: ai.abschluss.warum,
+  };
+}
+
+// ---------- Anzeige ----------
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const byIdText = (plan, id) => plan.sentences.find((s) => s.id === id).text;
+
+function render(plan) {
+  $("outHook").innerHTML = plan.hookId === undefined ? "<p>Kein Satz wurde behalten.</p>" : `
+    <p class="hook">„${esc(plan.finalText(plan.hookId))}“</p>
+    <p><span class="num">Satz ${plan.hookId}</span>${esc(plan.hookWhy)}</p>
+    ${plan.moveHook
+      ? `<p class="warn">Dieser Satz steht nicht am Anfang. Zieh ihn im Schnitt ganz nach vorne.</p>`
+      : `<p class="reason">Steht schon am Anfang – passt.</p>`}`;
+
+  $("outList").innerHTML = `<ol style="list-style:none;padding:0">` + plan.sentences.map((s) => {
+    const d = plan.decisions.get(s.id);
+    const keep = d.entscheidung === "BEHALTEN";
+    return `<li><span class="num">${s.id}</span><span class="tag ${keep ? "keep" : "cut"}">${keep ? "BEHALTEN" : "RAUS"}</span>
+      <span class="${keep ? "" : "cutline"}">${esc(s.text)}</span>
+      ${keep ? "" : `<div class="reason">→ ${esc(d.grund)}</div>`}</li>`;
+  }).join("") + `</ol>` + plan.warnings.map((w) => `<div class="warn">${esc(w)}</div>`).join("");
+
+  $("outOrder").innerHTML = `<ol>` + plan.order.map((id) =>
+    `<li><span class="num">Satz ${id}</span>${esc(plan.finalText(id))}</li>`).join("") + `</ol>`;
+
+  $("outOverlay").innerHTML = `<ol>` + plan.overlays.map((o) =>
+    `<li><strong>${esc(o.text)}</strong>${o.tooLong ? ` <span class="warn">mehr als ${MAX_OVERLAY_WORDS} Wörter</span>` : ""}</li>`).join("") + `</ol>`;
+
+  $("outSubs").textContent = plan.subtitleBlocks.map((b) => b.lines.join("\n")).join("\n\n");
+
+  $("outEnd").innerHTML = `
+    <p>Ungefähre Länge: <span class="big">ca. ${plan.seconds} Sekunden</span> <span class="reason">(${plan.totalWords} Wörter, ${plan.order.length} Sätze)</span></p>
+    ${plan.endId !== undefined ? `<p>Bester Abschluss: <strong>„${esc(plan.finalText(plan.endId))}“</strong> <span class="num">(Satz ${plan.endId})</span></p>
+    <p class="reason">${esc(plan.endWhy)}</p>` : ""}`;
+
+  $("result").classList.remove("hidden");
+  $("result").scrollIntoView({ behavior: "smooth" });
+}
+
+function planAsText(plan) {
+  const L = [];
+  L.push("1. HOOK", `„${plan.finalText(plan.hookId)}“ (Satz ${plan.hookId})`, plan.hookWhy);
+  if (plan.moveHook) L.push("→ Steht nicht am Anfang: nach vorne ziehen!");
+  L.push("", "2. SCHNITTLISTE");
+  for (const s of plan.sentences) {
+    const d = plan.decisions.get(s.id);
+    L.push(`[${s.id}] ${d.entscheidung}: ${s.text}${d.entscheidung === "RAUS" ? `  (${d.grund})` : ""}`);
+  }
+  L.push("", "3. REIHENFOLGE", ...plan.order.map((id, i) => `${i + 1}. [${id}] ${plan.finalText(id)}`));
+  L.push("", "4. TEXT OBEN IM BILD", ...plan.overlays.map((o, i) => `${i + 1}. ${o.text}`));
+  L.push("", "5. UNTERTITEL", $("outSubs").textContent);
+  L.push("", "6. ENDE", `Ca. ${plan.seconds} Sekunden.`, `Bester Abschluss: „${plan.finalText(plan.endId)}“ (Satz ${plan.endId})`, plan.endWhy);
+  if (plan.warnings.length) L.push("", "HINWEISE", ...plan.warnings);
+  return L.join("\n");
+}
+
+function planAsSrt(plan) {
+  // Grobe Zeiten aus dem Sprechtempo – im Schnittprogramm nachjustieren.
+  const lines = plan.subtitleBlocks.flatMap((b) => b.lines);
+  const ts = (sec) => {
+    const ms = Math.round(sec * 1000);
+    const p = (n, l = 2) => String(n).padStart(l, "0");
+    return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms / 60000) % 60)}:${p(Math.floor(ms / 1000) % 60)},${p(ms % 1000, 3)}`;
+  };
+  let t = 0;
+  return lines.map((line, i) => {
+    const dur = Math.max(0.6, countWords(line) / WORDS_PER_SECOND);
+    const block = `${i + 1}\n${ts(t)} --> ${ts(t + dur)}\n${line}\n`;
+    t += dur;
+    return block;
+  }).join("\n");
+}
+
+function download(name, content) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([content], { type: "text/plain;charset=utf-8" }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+async function copy(text, btn) {
+  try { await navigator.clipboard.writeText(text); const o = btn.textContent; btn.textContent = "Kopiert ✓"; setTimeout(() => (btn.textContent = o), 1500); }
+  catch { alert("Kopieren hat nicht geklappt – bitte manuell markieren."); }
+}
+
+// ---------- Verdrahtung ----------
+let currentPlan = null;
+const saved = store.get("reelcutter.key");
+if (saved) { $("apiKey").value = saved; $("remember").checked = true; }
+const savedModel = store.get("reelcutter.model");
+if (savedModel) $("model").value = savedModel;
+
+$("run").addEventListener("click", async () => {
+  const status = $("status");
+  const apiKey = $("apiKey").value.trim();
+  const raw = $("transcript").value;
+  const sentences = splitSentences(raw);
+  if (!sentences.length) { status.innerHTML = `<div class="error">Bitte zuerst ein Transkript einfügen.</div>`; return; }
+  if (!apiKey) { status.innerHTML = `<div class="error">Bitte API-Key eintragen – oder „Prompt kopieren“ nutzen und in die Claude-App einfügen.</div>`; return; }
+  if ($("remember").checked) store.set("reelcutter.key", apiKey); else store.del("reelcutter.key");
+  store.set("reelcutter.model", $("model").value);
+
+  $("run").disabled = true;
+  status.textContent = `${sentences.length} Sätze erkannt – Claude schneidet …`;
+  try {
+    const ai = await askClaude({ apiKey, model: $("model").value, sentences });
+    currentPlan = buildPlan(sentences, ai);
+    render(currentPlan);
+    status.textContent = "Fertig.";
+  } catch (e) {
+    console.error(e);
+    status.innerHTML = `<div class="error">Fehler: ${esc(e.message || e)}</div>`;
+  } finally {
+    $("run").disabled = false;
+  }
+});
+
+$("copyPrompt").addEventListener("click", (e) => {
+  const raw = $("transcript").value.trim();
+  copy(chatPrompt(raw || "[HIER DEIN TRANSKRIPT EINFÜGEN]"), e.currentTarget);
+});
+$("copySubs").addEventListener("click", (e) => copy($("outSubs").textContent, e.currentTarget));
+$("downloadSrt").addEventListener("click", () => currentPlan && download("untertitel.srt", planAsSrt(currentPlan)));
+$("downloadPlan").addEventListener("click", () => currentPlan && download("schnittplan.txt", planAsText(currentPlan)));
+
+// Für Tests
+window.__reelCutter = { splitSentences, buildPlan, render };
+</script>
+</body>
+</html>
