@@ -27,7 +27,15 @@ python3 strategy.py && python3 crypto_trader.py --selftest && python3 live_trade
 ## Bot 1: Krypto (Kraken, BTC/EUR) — der echte 100-€-Bot
 
 Krypto passt zu 100 €: Bruchteile von Coins, EUR-Paar, in Deutschland nutzbar.
-Bei ~100 € kauft der Bot pro Trade eine **~20-€-Position und riskiert ~1 €**.
+Eingestellt auf **2 % Risiko pro Trade** und **3x Hebel** (etwas mehr Risiko,
+wie gewünscht). Hebel ändern: `LEVERAGE=2 ./start_crypto.sh`, oder `LEVERAGE=1`
+für ganz ohne Hebel.
+
+> 🛑 **Hebel-Warnung:** Mit 3x Hebel liquidiert Kraken deine Position grob ab
+> ~33 % Gegenbewegung — dann ist das eingesetzte Kapital **weg**, auch unter
+> dem Stop. Der 5-%-Stop greift normalerweise weit vorher, aber ein Crash kann
+> springen. Margin muss in deinem Kraken-Konto **freigeschaltet** sein (in der
+> EU oft eingeschränkt). Je höher der Hebel, desto schneller der Totalverlust.
 
 1. Konto: [kraken.com](https://www.kraken.com) → verifizieren → **100 € einzahlen**.
 2. API-Keys: **Settings → API** → neuen Key, Rechte *Query* + *Create/Modify
@@ -80,8 +88,9 @@ genau der Schritt, den die meisten überspringen (siehe `RISK_NOTES.md`).
 
 | Schutz              | Wert    | Bedeutung                                      |
 |---------------------|---------|------------------------------------------------|
-| Risiko pro Trade    | 1 %     | ~1 € max. Verlust pro Trade bei 100 €          |
+| Risiko pro Trade    | 2 %     | ~2 € max. Verlust pro Trade bei 100 € (Krypto) |
 | Stop-Loss           | 3–5 %   | automatischer Ausstieg bei Verlust             |
+| Hebel (nur Krypto)  | 3x      | größere Position; Liquidation ~33 % Gegenbew.  |
 | Tagesverlustlimit   | 5 %     | danach heute keine neuen Käufe                 |
 | Ruin-Stopp          | 70      | fällt das Konto auf 70, hört der Bot auf       |
-| Positions-Cap       | 30      | nie mehr als ~30 in einer Position             |
+| Positions-Cap       | 50      | nie mehr als ~50 in einer Position             |

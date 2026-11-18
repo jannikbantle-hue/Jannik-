@@ -177,6 +177,20 @@ Kraken-Kontoübersicht.
 - Höherer Standard-Stop (`--stop 0.05`), weil Krypto stärker schwankt.
 - Tages-Equity wird lokal in `crypto_state.json` gemerkt (nicht committen).
 
+### Hebel / Margin (`--leverage N`, optional)
+
+`--leverage 1` (Standard) = Spot, kein Hebel, kein Liquidationsrisiko.
+`--leverage 2` … `5` = echte Kraken-Margin-Position (größer, riskanter):
+
+- **Liquidation**: Kraken schließt die Position grob ab ~`1/N` Gegenbewegung
+  zwangsweise → eingesetztes Kapital weg, evtl. **vor** dem Stop. 3x ≈ 33 %,
+  5x ≈ 20 %. Je höher der Hebel, desto kleiner die tödliche Bewegung.
+- **Verfügbarkeit**: Margin muss im Kraken-Konto freigeschaltet sein; in der
+  EU für Privatkunden oft gesperrt/eingeschränkt (MiCA/ESMA).
+- Positionen werden über `OpenPositions`/`TradeBalance` erkannt und mit
+  `reduce_only` geschlossen. Diese Margin-Pfade sind **offline** geprüft, aber
+  **nicht live** getestet — starte zuerst ohne `--live`.
+
 ## Teil 4: Krypto-Arbitrage-Scanner (`arbitrage.py`, Kraken)
 
 Prüft einen Dreieck-Zyklus (z. B. USD → BTC → ETH → USD) mit **echten Kursen**

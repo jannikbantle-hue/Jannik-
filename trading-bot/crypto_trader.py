@@ -59,6 +59,14 @@ def kraken_signature(urlpath: str, data: dict, secret_b64: str) -> str:
     return base64.b64encode(mac.digest()).decode()
 
 
+def liquidation_distance(leverage: int, maint: float = 0.0) -> float:
+    """Grober Kursabstand bis zur Liquidation einer Long-Position (Bruchteil).
+    1.0 = keine Liquidation (Spot). Bei Hebel N ~ 1/N. Nur Näherung!"""
+    if leverage <= 1:
+        return 1.0
+    return max(0.0, (1.0 - maint) / leverage)
+
+
 def _norm_pair(p: str) -> str:
     """Grobe Normalisierung, damit 'XBTUSD', 'XXBTZUSD', 'BTC/USD' vergleichbar sind."""
     p = p.upper().replace("/", "")
@@ -140,20 +148,49 @@ class Kraken:
         self._private("CancelOrder", {"txid": txid})
 
     def market_buy_with_stop(self, pair: str, volume: float, stop_price: float,
-                             price_prec: int, validate: bool) -> dict:
+                             price_prec: int, leverage: int = 1,
+                             validate: bool = False) -> dict:
         data = {
             "pair": pair, "type": "buy", "ordertype": "market",
             "volume": f"{volume:.8f}",
             "close[ordertype]": "stop-loss",
             "close[price]": f"{stop_price:.{price_prec}f}",
         }
+        if leverage > 1:                      # Margin/Hebel-Position
+            data["leverage"] = str(leverage)
         if validate:
             data["validate"] = "true"
         return self._private("AddOrder", data)
 
-    def market_sell(self, pair: str, volume: float, validate: bool) -> dict:
+    def market_sell(self, pair: str, volume: float, validate: bool = False) -> dict:
         data = {"pair": pair, "type": "sell", "ordertype": "market",
                 "volume": f"{volume:.8f}"}
+        if validate:
+            data["validate"] = "true"
+        return self._private("AddOrder", data)
+
+    # -- Margin/Hebel (privat) --------------------------------------------- #
+    def trade_balance(self, asset: str) -> dict:
+        r = self._private("TradeBalance", {"asset": asset})
+        return {"equity": float(r.get("e", 0.0)), "free_margin": float(r.get("mf", 0.0))}
+
+    def long_position_volume(self, pair: str) -> float:
+        """Offenes LONG-Volumen der Hebel-Position für dieses Paar (0 = keine)."""
+        r = self._private("OpenPositions")
+        want = _norm_pair(pair)
+        vol = 0.0
+        for _txid, p in (r or {}).items():
+            if _norm_pair(p.get("pair", "")) == want and p.get("type") == "buy":
+                vol += float(p.get("vol", 0)) - float(p.get("vol_closed", 0))
+        return vol
+
+    def close_long(self, pair: str, volume: float, leverage: int,
+                   validate: bool = False) -> dict:
+        """Schließt eine LONG-Hebel-Position (reduce_only, damit nichts gedreht wird)."""
+        data = {"pair": pair, "type": "sell", "ordertype": "market",
+                "volume": f"{volume:.8f}", "reduce_only": "true"}
+        if leverage > 1:
+            data["leverage"] = str(leverage)
         if validate:
             data["validate"] = "true"
         return self._private("AddOrder", data)
@@ -186,24 +223,37 @@ def run_cycle(api: Kraken, args) -> None:
     def log(m: str) -> None:
         print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {m}", flush=True)
 
+    margin = args.leverage > 1
+
     closes = api.closes(args.pair, args.interval)
     if len(closes) < args.slow:
         log(f"Zu wenige Kurse für {args.pair} ({len(closes)}). Zyklus übersprungen.")
         return
     price = closes[-1]
 
-    bal = api.balance()
-    base_amt = bal.get(args.base_asset, 0.0)
-    quote_amt = bal.get(args.quote_asset, 0.0)
-    equity = quote_amt + base_amt * price
-    have = base_amt >= args.min_volume
-    ds_equity = day_start_equity(args.state_file, equity)
-    log(f"Equity {equity:.2f} {args.quote_asset} | {args.base_asset} {base_amt:.8f} "
-        f"| Cash {quote_amt:.2f} | Tag-Start {ds_equity:.2f}")
+    if margin:
+        tb = api.trade_balance(args.quote_asset)
+        equity = tb["equity"]
+        buying_power = tb["free_margin"] * args.leverage
+        pos_vol = api.long_position_volume(args.pair)
+        have = pos_vol >= args.min_volume
+        log(f"Equity {equity:.2f} {args.quote_asset} | Hebel {args.leverage}x "
+            f"| Long-Position {pos_vol:.8f} | freie Margin {tb['free_margin']:.2f}")
+    else:
+        bal = api.balance()
+        base_amt = bal.get(args.base_asset, 0.0)
+        quote_amt = bal.get(args.quote_asset, 0.0)
+        equity = quote_amt + base_amt * price
+        buying_power = quote_amt
+        pos_vol = base_amt
+        have = base_amt >= args.min_volume
+        log(f"Equity {equity:.2f} {args.quote_asset} | {args.base_asset} {base_amt:.8f} "
+            f"| Cash {quote_amt:.2f}")
 
+    ds_equity = day_start_equity(args.state_file, equity)
     action = decide(closes, args.fast, args.slow, have)
     log(f"{args.pair} Kurs {price:.2f} | SMA{args.fast}/{args.slow} → Signal: {action.upper()} "
-        f"| Bestand: {'JA' if have else 'nein'}")
+        f"| Position: {'JA' if have else 'nein'} | Tag-Start {ds_equity:.2f}")
 
     if action == "buy":
         ok, reason = risk_gate(equity, ds_equity, args.min_equity, args.daily_loss_limit)
@@ -211,28 +261,39 @@ def run_cycle(api: Kraken, args) -> None:
             log(reason)
             return
         vol = size_order(equity, price, args.risk, args.stop, args.max_position,
-                         quote_amt, whole=False, precision=8)
+                         buying_power, whole=False, precision=8)
         if vol < args.min_volume:
             log(f"Volumen {vol:.8f} < Mindestmenge {args.min_volume}. Kein Kauf.")
             return
         stop = price * (1 - args.stop)
+        if margin:
+            liq = liquidation_distance(args.leverage)
+            if args.stop > 0.7 * liq:
+                log(f"⚠️ ACHTUNG: Stop {args.stop:.0%} liegt nahe am Liquidationsabstand "
+                    f"(~{liq:.0%} bei {args.leverage}x). Die Position kann liquidiert "
+                    f"werden, BEVOR der Stop greift!")
         if args.dry_run or not args.live:
-            log(f"[{'DRY-RUN' if args.dry_run else 'PAPER/ANALYSE'}] KAUF {vol:.8f} "
-                f"{args.pair} @ ~{price:.2f} | Stop {stop:.{args.price_precision}f} — NICHT gesendet.")
+            tag = "DRY-RUN" if args.dry_run else "ANALYSE"
+            log(f"[{tag}] KAUF {vol:.8f} {args.pair} @ ~{price:.2f} | Stop "
+                f"{stop:.{args.price_precision}f} | Hebel {args.leverage}x — NICHT gesendet.")
             return
-        order = api.market_buy_with_stop(args.pair, vol, stop, args.price_precision, validate=False)
+        order = api.market_buy_with_stop(args.pair, vol, stop, args.price_precision,
+                                         leverage=args.leverage, validate=False)
         log(f"✅ KAUF gesendet: {vol:.8f} {args.pair} | exchange-Stop {stop:.{args.price_precision}f} "
-            f"| {order.get('descr', {}).get('order', '')}")
+            f"| Hebel {args.leverage}x | {order.get('descr', {}).get('order', '')}")
 
     elif action == "sell":
         if args.dry_run or not args.live:
-            log(f"[{'DRY-RUN' if args.dry_run else 'PAPER/ANALYSE'}] SCHLIESSEN {base_amt:.8f} "
-                f"{args.pair} — NICHT gesendet.")
+            tag = "DRY-RUN" if args.dry_run else "ANALYSE"
+            log(f"[{tag}] SCHLIESSEN {pos_vol:.8f} {args.pair} — NICHT gesendet.")
             return
         for txid in api.open_orders_for(args.pair):   # offenen Stop-Loss lösen
             api.cancel(txid)
-        api.market_sell(args.pair, base_amt, validate=False)
-        log(f"✅ Position {args.pair} geschlossen (Signal): {base_amt:.8f} verkauft.")
+        if margin:
+            api.close_long(args.pair, pos_vol, args.leverage)
+        else:
+            api.market_sell(args.pair, pos_vol)
+        log(f"✅ Position {args.pair} geschlossen (Signal): {pos_vol:.8f}.")
     else:
         log("Nichts zu tun (hold).")
 
@@ -259,7 +320,13 @@ def selftest() -> int:
     np_ok = _norm_pair("XBTUSD") == _norm_pair("XXBTZUSD") == _norm_pair("BTC/USD")
     print(f"  [{'OK ' if np_ok else 'FAIL'}] Pair-Normalisierung")
 
-    ok = ok and sig_ok and np_ok
+    print("\nHebel / Liquidationsabstand:")
+    liq_ok = (liquidation_distance(1) == 1.0
+              and abs(liquidation_distance(2) - 0.5) < 1e-9
+              and abs(liquidation_distance(5) - 0.2) < 1e-9)
+    print(f"  [{'OK ' if liq_ok else 'FAIL'}] Spot=1.0, 2x≈50%, 5x≈20%")
+
+    ok = ok and sig_ok and np_ok and liq_ok
     print("\nSelbsttest:", "ALLE BESTANDEN ✅" if ok else "FEHLER ❌")
     return 0 if ok else 1
 
@@ -280,6 +347,8 @@ def main() -> None:
     p.add_argument("--slow", type=int, default=30, help="langsamer SMA")
     p.add_argument("--risk", type=float, default=0.01, help="Risiko pro Trade (Bruchteil)")
     p.add_argument("--stop", type=float, default=0.05, help="Stop-Loss (Bruchteil, Krypto volatiler)")
+    p.add_argument("--leverage", type=int, default=1,
+                   help="Hebel (1=Spot/kein Hebel; >1 = Kraken-Margin, Liquidationsrisiko!)")
     p.add_argument("--max-position", type=float, default=100.0, help="max. Positionswert (Quote-Währung)")
     p.add_argument("--daily-loss-limit", type=float, default=0.05, help="Tagesverlustlimit")
     p.add_argument("--min-equity", type=float, default=0.0, help="Ruin-Stopp: darunter kein Handel")
@@ -296,6 +365,9 @@ def main() -> None:
     if args.selftest:
         sys.exit(selftest())
 
+    if args.leverage < 1:
+        raise SystemExit("--leverage muss >= 1 sein (1 = kein Hebel).")
+
     key = os.environ.get("KRAKEN_API_KEY")
     secret = os.environ.get("KRAKEN_API_SECRET")
     if not key or not secret:
@@ -307,11 +379,19 @@ def main() -> None:
         )
 
     mode = "ECHTES GELD (LIVE)" if args.live else "nur Analyse (nichts wird gesendet)"
+    hebel = f"{args.leverage}x Hebel (MARGIN)" if args.leverage > 1 else "ohne Hebel (Spot)"
     print("=" * 64)
     print(f"  Krypto-Bot (Kraken) — Modus: {mode}")
-    print(f"  {args.pair} | SMA {args.fast}/{args.slow} | Risiko {args.risk:.1%} "
+    print(f"  {args.pair} | {hebel} | SMA {args.fast}/{args.slow} | Risiko {args.risk:.1%} "
           f"| Stop {args.stop:.1%} | Cap {args.max_position:.0f} {args.quote_asset}")
     print("=" * 64)
+
+    if args.leverage > 1:
+        liq = liquidation_distance(args.leverage)
+        print(f"\n⚠️  HEBEL {args.leverage}x: Liquidation grob ab ~{liq:.0%} Gegenbewegung — "
+              f"dann ist das eingesetzte Kapital WEG, auch unter dem Stop.")
+        print("   Margin muss in deinem Kraken-Konto freigeschaltet sein (in der EU oft")
+        print("   gesperrt/eingeschränkt). Die Margin-Logik ist hier nicht live getestet.")
 
     if args.live and not args.dry_run and not args.yes:
         print("\n⚠️  Du startest mit ECHTEM GELD auf Kraken. Reale Orders, realer Verlust möglich.")
