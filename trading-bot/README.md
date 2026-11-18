@@ -1,12 +1,31 @@
-# Paper-Trading-Bot
+# Trading-Bots: Aktien & Krypto
 
-Ein Trading-Bot, der mit **Spielgeld** handelt und sauberes Risikomanagement
-vorführt. Er **wächst**, wenn er Geld verdient, und **stoppt sich selbst**,
-wenn das Kapital unter eine Ruin-Schwelle fällt.
+Drei Bausteine, eine gemeinsame Strategie- und Risiko-Logik (`strategy.py`):
 
-> ⚠️ **Nur zum Lernen.** Der Bot sendet **keine echten Orders** und bewegt
-> **kein echtes Geld**. Keine Anlageberatung. Historische oder simulierte
-> Ergebnisse sagen nichts über die Zukunft aus.
+| Datei              | Was                        | Börse  | Geld                      | Stop-Loss            |
+|--------------------|----------------------------|--------|---------------------------|----------------------|
+| `bot.py`           | Simulation / Backtest      | —      | Spielgeld                 | simuliert            |
+| `live_trader.py`   | **Aktien** live            | Alpaca | Paper **oder** echt       | Bracket-Order        |
+| `crypto_trader.py` | **Krypto** live            | Kraken | nur Analyse **oder** echt | nativ an der Börse   |
+
+> ⚠️ **Wichtig, ehrlich gesagt:** Kein Bot kann Verluste ausschließen — bei
+> Krypto erst recht nicht. Gutes Risikomanagement hält einen *einzelnen*
+> Verlust klein (Stop-Loss, Positionsgröße, Limits), verhindert ihn aber
+> nicht. Wer dir einen „verlustfreien" Bot verspricht, betrügt dich.
+> Riskiere nur Geld, dessen Totalverlust du verkraftest. Keine Anlageberatung.
+
+Warum für Krypto eine **andere Börse (Kraken)**? Weil ein Krypto-Bot ohne
+echten Stop-Loss sinnlos ist — und Alpaca das für Krypto nicht bietet. Kraken
+legt beim Kauf automatisch eine Stop-Loss-Order an der Börse mit ab
+(„conditional close"), die auch dann greift, wenn der Bot gerade nicht läuft.
+
+---
+
+## Teil 1: Simulation (`bot.py`)
+
+Ein Bot, der mit **Spielgeld** handelt und sauberes Risikomanagement vorführt.
+Er **wächst**, wenn er Geld verdient, und **stoppt sich selbst**, wenn das
+Kapital unter eine Ruin-Schwelle fällt.
 
 ## Die Idee
 
@@ -70,7 +89,7 @@ python3 bot.py --csv demo_trap.csv --risk 0.15 --stop 0.05
 #   Status: GESTORBEN (Ruin)
 ```
 
-## Echter Handel mit echtem Geld (`live_trader.py`)
+## Teil 2: Aktien live (`live_trader.py`, Alpaca)
 
 > 🛑 **Lies das zuerst.** `live_trader.py` sendet mit `--live` **reale Orders**
 > auf dein echtes Alpaca-Konto. **Echtes Geld, echter Verlust.**
@@ -117,6 +136,47 @@ Keine Gewinngarantie, kein Geldautomat. Er ist eine saubere, geschützte
 Umsetzung einer bekannten Strategie — ob sie in deinem Markt Geld verdient,
 musst du **erst auf Paper über Wochen messen**, bevor du echtes Geld riskierst.
 
+## Teil 3: Krypto live (`crypto_trader.py`, Kraken)
+
+> 🛑 Mit `--live` **reale Krypto-Orders** auf deinem echten Kraken-Konto.
+> Krypto ist **volatiler** als Aktien und handelt **24/7** — es kann nachts
+> stark fallen, während du schläfst. Genau deshalb der exchange-seitige Stop.
+
+### Einrichtung
+
+1. Konto bei [kraken.com](https://www.kraken.com) anlegen.
+2. API-Keys erstellen unter **Settings → API** (Rechte: Query + Create/Modify
+   Orders; **kein** Withdraw-Recht nötig — lass es aus Sicherheit weg).
+3. Keys in `.env` eintragen (`KRAKEN_API_KEY`, `KRAKEN_API_SECRET`) und laden:
+   ```bash
+   set -a; source .env; set +a
+   ```
+
+### Benutzung
+
+```bash
+python3 crypto_trader.py --selftest              # Logik + Signatur offline prüfen
+python3 crypto_trader.py --pair XBTUSD --dry-run # BTC/USD analysieren, nichts senden
+python3 crypto_trader.py --pair XBTUSD           # analysieren (ohne --live kein Senden)
+python3 crypto_trader.py --pair XBTUSD --loop 300  # 24/7, alle 5 Min. ein Zyklus
+
+# ECHTES GELD — verlangt Eintippen von "ECHTGELD" (oder --yes):
+python3 crypto_trader.py --pair XBTUSD --live
+```
+
+Andere Coins: z. B. Ethereum mit
+`--pair XETHZUSD --base-asset XETH --quote-asset ZUSD`.
+Die Kraken-Asset-Codes (`XXBT`, `XETH`, `ZUSD`, `ZEUR` …) findest du in deiner
+Kraken-Kontoübersicht.
+
+### Unterschiede zum Aktien-Bot
+
+- **Stop-Loss** wird als echte Order **an der Börse** mitgegeben (nicht nur im Bot).
+- **Bruchteile** von Coins statt ganzer Stück.
+- **24/7** — keine Börsenöffnungszeiten-Sperre; sinnvoll mit `--loop`.
+- Höherer Standard-Stop (`--stop 0.05`), weil Krypto stärker schwankt.
+- Tages-Equity wird lokal in `crypto_state.json` gemerkt (nicht committen).
+
 ## Nächste Schritte (optional)
 
 - **Echte historische Kurse** testen: CSV mit `date,close` aus einer beliebigen
@@ -128,8 +188,20 @@ musst du **erst auf Paper über Wochen messen**, bevor du echtes Geld riskierst.
 
 ## Dateien
 
-- `bot.py` — der Simulations-Bot (Strategie, Risikomanagement, Auswertung).
-- `live_trader.py` — **echter Handel** über die Alpaca-API (Paper & Live).
+- `strategy.py` — **gemeinsame** Strategie- & Risiko-Logik (von beiden Live-Bots genutzt).
+- `bot.py` — Simulations-Bot (Strategie, Risikomanagement, Auswertung).
+- `live_trader.py` — **Aktien** live über die Alpaca-API (Paper & Live).
+- `crypto_trader.py` — **Krypto** live über die Kraken-API (Analyse & Live).
 - `make_demo_data.py` — erzeugt die Demo-Kursreihen.
 - `demo_boom.csv`, `demo_trap.csv` — Beispieldaten für die zwei Mechaniken.
 - `.env.example` — Vorlage für die API-Keys (echte `.env` wird nie committet).
+
+## Selbsttests
+
+Alle reine Logik ist offline testbar (keine Keys/Netz nötig):
+
+```bash
+python3 strategy.py                      # gemeinsame Logik
+python3 live_trader.py --selftest        # Aktien-Bot
+python3 crypto_trader.py --selftest      # Krypto-Bot + Kraken-Signatur-Testvektor
+```

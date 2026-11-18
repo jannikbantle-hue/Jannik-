@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 import sys
 import time
@@ -38,56 +37,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from strategy import decide, risk_gate, selftest_strategy, size_order
+
 PAPER_BASE = "https://paper-api.alpaca.markets"
 LIVE_BASE = "https://api.alpaca.markets"
 DATA_BASE = "https://data.alpaca.markets"
-
-
-# --------------------------------------------------------------------------- #
-#  Reine Logik (ohne Netzwerk) — hier liegt die Entscheidung, gut testbar.
-# --------------------------------------------------------------------------- #
-def sma(values: list[float], period: int) -> float | None:
-    if len(values) < period:
-        return None
-    return sum(values[-period:]) / period
-
-
-def decide(closes: list[float], fast: int, slow: int, have_position: bool) -> str:
-    """Gibt 'buy', 'sell' oder 'hold' zurück (Regime: Long solange fast > slow)."""
-    f, s = sma(closes, fast), sma(closes, slow)
-    if f is None or s is None:
-        return "hold"
-    bullish = f > s
-    if bullish and not have_position:
-        return "buy"
-    if not bullish and have_position:
-        return "sell"
-    return "hold"
-
-
-def size_order(equity: float, price: float, risk: float, stop_pct: float,
-               max_position: float, buying_power: float) -> int:
-    """Ganze Stückzahl aus Risiko-pro-Trade, gedeckelt durch Kaufkraft & Cap."""
-    if price <= 0 or stop_pct <= 0:
-        return 0
-    dollars_at_risk = equity * risk
-    per_share_risk = price * stop_pct
-    qty = dollars_at_risk / per_share_risk
-    cap_dollars = min(max_position, buying_power)
-    qty = min(qty, cap_dollars / price)
-    return max(0, math.floor(qty))
-
-
-def risk_gate(equity: float, last_equity: float, min_equity: float,
-              daily_loss_limit: float) -> tuple[bool, str]:
-    """Darf eine NEUE Position eröffnet werden? (Schließen ist immer erlaubt.)"""
-    if equity < min_equity:
-        return False, f"💀 Equity {equity:.2f} < Mindest-Equity {min_equity:.2f} — Ruin-Stopp."
-    if last_equity > 0:
-        day_pl = (equity - last_equity) / last_equity
-        if day_pl <= -daily_loss_limit:
-            return False, f"🔒 Tagesverlust {day_pl:.1%} ≥ Limit — heute keine neuen Käufe."
-    return True, "ok"
 
 
 # --------------------------------------------------------------------------- #
@@ -193,7 +147,7 @@ def run_cycle(api: Alpaca, args) -> None:
         if not ok:
             log(reason)
             return
-        qty = size_order(equity, price, args.risk, args.stop, args.max_position, buying_power)
+        qty = int(size_order(equity, price, args.risk, args.stop, args.max_position, buying_power))
         if qty <= 0:
             log("Stückzahl 0 (Kapital/Cap zu klein für diesen Kurs). Kein Kauf.")
             return
@@ -223,36 +177,8 @@ def run_cycle(api: Alpaca, args) -> None:
 #  Selbsttest (offline, ohne Keys/Netz)
 # --------------------------------------------------------------------------- #
 def selftest() -> int:
-    ok = True
-
-    def check(name, cond):
-        nonlocal ok
-        print(f"  [{'OK ' if cond else 'FAIL'}] {name}")
-        ok = ok and cond
-
-    up = [float(i) for i in range(1, 60)]            # steigend → bullisch
-    down = [float(i) for i in range(60, 1, -1)]      # fallend → bärisch
-    check("Aufwärtstrend ohne Position → buy", decide(up, 10, 30, False) == "buy")
-    check("Aufwärtstrend mit Position → hold", decide(up, 10, 30, True) == "hold")
-    check("Abwärtstrend mit Position → sell", decide(down, 10, 30, True) == "sell")
-    check("Abwärtstrend ohne Position → hold", decide(down, 10, 30, False) == "hold")
-    check("Zu wenig Daten → hold", decide([1, 2, 3], 10, 30, False) == "hold")
-
-    # Sizing: 10000 Equity, 1% Risiko, 3% Stop, Preis 100
-    # dollars_at_risk=100, per_share_risk=3 → 33 Stück, Cap/Kaufkraft groß genug
-    check("Sizing Normalfall = 33", size_order(10000, 100, 0.01, 0.03, 1e9, 1e9) == 33)
-    check("Sizing durch Kaufkraft gedeckelt",
-          size_order(10000, 100, 0.01, 0.03, 1e9, 500) == 5)
-    check("Sizing Preis 0 → 0", size_order(10000, 0, 0.01, 0.03, 1e9, 1e9) == 0)
-
-    # Risiko-Gates
-    g_ruin, _ = risk_gate(500, 1000, 700, 0.05)
-    check("Ruin-Stopp greift", g_ruin is False)
-    g_day, _ = risk_gate(940, 1000, 100, 0.05)       # -6% Tag ≥ 5% Limit
-    check("Tagesverlustlimit greift", g_day is False)
-    g_ok, _ = risk_gate(1010, 1000, 100, 0.05)
-    check("Normalfall erlaubt", g_ok is True)
-
+    print("Selbsttest (gemeinsame Strategie-Logik):")
+    ok = selftest_strategy()
     print("\nSelbsttest:", "ALLE BESTANDEN ✅" if ok else "FEHLER ❌")
     return 0 if ok else 1
 

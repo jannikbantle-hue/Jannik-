@@ -1,4 +1,9 @@
-# Echte Keys und lokale Konfiguration niemals committen
+# Echte Keys und lokale Konfiguration/Status niemals committen
 .env
 *.env
 !.env.example
+crypto_state.json
+
+# Python-Cache
+__pycache__/
+*.pyc
