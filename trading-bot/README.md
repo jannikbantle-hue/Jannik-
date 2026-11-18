@@ -177,6 +177,30 @@ Kraken-Kontoübersicht.
 - Höherer Standard-Stop (`--stop 0.05`), weil Krypto stärker schwankt.
 - Tages-Equity wird lokal in `crypto_state.json` gemerkt (nicht committen).
 
+## Teil 4: Krypto-Arbitrage-Scanner (`arbitrage.py`, Kraken)
+
+Prüft einen Dreieck-Zyklus (z. B. USD → BTC → ETH → USD) mit **echten Kursen**
+und **echten Gebühren** und sagt dir, ob nach Gebühren ein Gewinn übrig bleibt.
+**Braucht keine API-Keys** (nur öffentliche Kurse) und sendet **keine Orders**.
+
+```bash
+python3 arbitrage.py --selftest        # Rechenlogik offline prüfen
+python3 arbitrage.py                    # USD-BTC-ETH-Dreieck einmal scannen
+python3 arbitrage.py --taker-fee 0.0026 # mit deiner echten Gebühr rechnen
+python3 arbitrage.py --loop 10          # alle 10 s scannen
+```
+
+> 🔴 Erwartung: Fast immer **rot** (Verlust). Das ist korrekt, kein Fehler.
+> 3 Legs × ~0,4 % Gebühr ≈ 1,2 %, die Spanne ist aber nur 0,01–0,10 % und in
+> Sekunden weg. Warum Privatleute hier nicht gewinnen, steht in `RISK_NOTES.md`.
+
+## Wissen: `RISK_NOTES.md`
+
+Recherchierte, mit Quellen belegte Zusammenfassung, **wie man wenig verliert** —
+Positionsgröße (1-%-Regel), Risk of Ruin, Expectancy, Kelly, die vier
+Schutzschichten, plus die ehrliche Faktenlage zur Arbitrage. Das ist der
+Wissens-Teil deiner Frage, dauerhaft im Repo.
+
 ## Nächste Schritte (optional)
 
 - **Echte historische Kurse** testen: CSV mit `date,close` aus einer beliebigen
@@ -192,8 +216,10 @@ Kraken-Kontoübersicht.
 - `bot.py` — Simulations-Bot (Strategie, Risikomanagement, Auswertung).
 - `live_trader.py` — **Aktien** live über die Alpaca-API (Paper & Live).
 - `crypto_trader.py` — **Krypto** live über die Kraken-API (Analyse & Live).
+- `arbitrage.py` — **Dreieck-Arbitrage-Scanner** (Kraken, nur Analyse, keine Keys).
 - `make_demo_data.py` — erzeugt die Demo-Kursreihen.
 - `demo_boom.csv`, `demo_trap.csv` — Beispieldaten für die zwei Mechaniken.
+- `RISK_NOTES.md` — recherchiertes Wissen zu Risikomanagement & Arbitrage.
 - `.env.example` — Vorlage für die API-Keys (echte `.env` wird nie committet).
 
 ## Selbsttests
@@ -204,4 +230,5 @@ Alle reine Logik ist offline testbar (keine Keys/Netz nötig):
 python3 strategy.py                      # gemeinsame Logik
 python3 live_trader.py --selftest        # Aktien-Bot
 python3 crypto_trader.py --selftest      # Krypto-Bot + Kraken-Signatur-Testvektor
+python3 arbitrage.py --selftest          # Arbitrage-Rechenlogik
 ```
