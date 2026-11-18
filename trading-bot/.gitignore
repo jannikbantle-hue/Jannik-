@@ -1,0 +1,4 @@
+# Echte Keys und lokale Konfiguration niemals committen
+.env
+*.env
+!.env.example

@@ -70,6 +70,53 @@ python3 bot.py --csv demo_trap.csv --risk 0.15 --stop 0.05
 #   Status: GESTORBEN (Ruin)
 ```
 
+## Echter Handel mit echtem Geld (`live_trader.py`)
+
+> 🛑 **Lies das zuerst.** `live_trader.py` sendet mit `--live` **reale Orders**
+> auf dein echtes Alpaca-Konto. **Echtes Geld, echter Verlust.**
+> Automatisiertes Trading mit einer simplen Strategie wie dieser macht
+> **nicht zuverlässig Gewinn** — nach Gebühren und Slippage verliert so etwas
+> im Schnitt eher Geld. Starte **immer zuerst auf dem Paper-Konto** und riskiere
+> nur Geld, dessen Totalverlust du verkraftest.
+
+### Einrichtung
+
+1. Konto bei [alpaca.markets](https://alpaca.markets) anlegen (Paper ist gratis).
+2. API-Keys erstellen (**Paper und Live haben getrennte Keys**).
+3. Keys als Umgebungsvariablen setzen — **nie in den Code, nie ins Git**:
+   ```bash
+   cp .env.example .env     # .env ist per .gitignore ausgeschlossen
+   # Keys in .env eintragen, dann:
+   set -a; source .env; set +a
+   ```
+
+### Benutzung
+
+```bash
+python3 live_trader.py --symbol SPY --selftest   # Logik offline prüfen (kein Konto nötig)
+python3 live_trader.py --symbol SPY --dry-run    # Paper: Signal + Order nur anzeigen
+python3 live_trader.py --symbol SPY              # Paper-Konto: echte API, kein echtes Geld
+python3 live_trader.py --symbol SPY --loop 300   # alle 5 Min. ein Zyklus (Paper)
+
+# ECHTES GELD — verlangt Eintippen von "ECHTGELD" (oder --yes):
+python3 live_trader.py --symbol SPY --live
+```
+
+### Eingebaute Schutzmechanismen
+
+- **Stop-Loss je Trade** als Bracket-Order (geht direkt mit an die Börse).
+- **Positions-Obergrenze** (`--max-position`, Standard 1000 $).
+- **Tagesverlustlimit** (`--daily-loss-limit`, Standard 5 %): danach keine neuen Käufe.
+- **Ruin-Stopp** (`--min-equity`): fällt das Konto darunter, kauft der Bot nicht mehr.
+- **Nur eine offene Position**, nur Long, nur bei geöffneter Börse.
+- **Paper als Standard** — echtes Geld nur mit explizitem `--live` + Bestätigung.
+
+### Was dieser Bot NICHT ist
+
+Keine Gewinngarantie, kein Geldautomat. Er ist eine saubere, geschützte
+Umsetzung einer bekannten Strategie — ob sie in deinem Markt Geld verdient,
+musst du **erst auf Paper über Wochen messen**, bevor du echtes Geld riskierst.
+
 ## Nächste Schritte (optional)
 
 - **Echte historische Kurse** testen: CSV mit `date,close` aus einer beliebigen
@@ -81,6 +128,8 @@ python3 bot.py --csv demo_trap.csv --risk 0.15 --stop 0.05
 
 ## Dateien
 
-- `bot.py` — der Bot (Strategie, Risikomanagement, Auswertung).
+- `bot.py` — der Simulations-Bot (Strategie, Risikomanagement, Auswertung).
+- `live_trader.py` — **echter Handel** über die Alpaca-API (Paper & Live).
 - `make_demo_data.py` — erzeugt die Demo-Kursreihen.
 - `demo_boom.csv`, `demo_trap.csv` — Beispieldaten für die zwei Mechaniken.
+- `.env.example` — Vorlage für die API-Keys (echte `.env` wird nie committet).
