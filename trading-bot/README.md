@@ -212,6 +212,8 @@ Wissens-Teil deiner Frage, dauerhaft im Repo.
 
 ## Dateien
 
+- `START.md` — **100-€-Schnellstart** für beide Bots (hier anfangen).
+- `start_crypto.sh`, `start_stocks.sh` — Ein-Befehl-Starter (sicher per Standard).
 - `strategy.py` — **gemeinsame** Strategie- & Risiko-Logik (von beiden Live-Bots genutzt).
 - `bot.py` — Simulations-Bot (Strategie, Risikomanagement, Auswertung).
 - `live_trader.py` — **Aktien** live über die Alpaca-API (Paper & Live).
